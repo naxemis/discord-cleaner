@@ -141,7 +141,9 @@ class DiscordCleaner
 
             bool hasAttachments = msg.GetProperty("attachments").GetArrayLength() > 0;
             bool hasEmbeds = msg.GetProperty("embeds").GetArrayLength() > 0;
-            bool hasMedia = hasAttachments || hasEmbeds;
+            string content = msg.GetProperty("content").GetString() ?? "";
+            bool hasLink = content.Contains("http://") || content.Contains("https://");
+            bool hasMedia = hasAttachments || hasEmbeds || hasLink;
 
             result.Add((msgId, hasMedia));
         }
