@@ -37,6 +37,7 @@ class DiscordCleaner
 
         List<string> channels = await FetchDmChannelIdsAsync();
         Console.WriteLine($"Found {channels.Count} DM channel(s):");
+        channels.Sort((a, b) => ulong.Parse(b).CompareTo(ulong.Parse(a)));
         foreach (string ch in channels)
             Console.WriteLine($"  {ch}");
 
