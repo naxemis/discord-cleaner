@@ -5,7 +5,7 @@ namespace DiscordCleaner;
 
 /// <summary>
 /// Deletes messages containing links or attachments from all DM channels,
-/// starting from a configured date. Uses the user's own account token.
+/// scanning from newest to oldest down to StartDate.
 /// Note: automating a user account violates Discord ToS (section 13).
 /// </summary>
 class DiscordCleaner
@@ -23,17 +23,22 @@ class DiscordCleaner
 
     static async Task Main()
     {
-        DotNetEnv.Env.Load();
+        string envPath = Path.Combine(AppContext.BaseDirectory, ".env");
+        DotNetEnv.Env.Load(envPath);
         Token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "";
         MyUserId = Environment.GetEnvironmentVariable("DISCORD_USER_ID") ?? "";
 
+        Console.WriteLine($"Token loaded: {(string.IsNullOrEmpty(Token) ? "EMPTY!" : "OK")}");
+        Console.WriteLine($"UserId loaded: {(string.IsNullOrEmpty(MyUserId) ? "EMPTY!" : "OK")}");
+
         Http.DefaultRequestHeaders.Add("Authorization", Token);
 
-        string afterId = DateToSnowflake(StartDate);
-        Console.WriteLine($"Deleting your messages sent after {StartDate:yyyy-MM-dd} (snowflake: {afterId})");
+        Console.WriteLine($"Deleting your messages from {StartDate:yyyy-MM-dd} to now, newest first.");
 
         List<string> channels = await FetchDmChannelIdsAsync();
-        Console.WriteLine($"Found {channels.Count} DM channel(s).");
+        Console.WriteLine($"Found {channels.Count} DM channel(s):");
+        foreach (string ch in channels)
+            Console.WriteLine($"  {ch}");
 
         int totalDeleted = 0;
         int requestsSinceBreak = 0;
@@ -42,23 +47,23 @@ class DiscordCleaner
         {
             Console.WriteLine($"\nScanning channel {channelId}...");
 
-            // Pagination cursor: we advance it after each page.
-            string pageAfterId = afterId;
+            // Start from now and go backwards.
+            string pageBeforeId = DateToSnowflake(DateTime.UtcNow);
 
             while (true)
             {
-                List<(string id, bool hasMedia)> messages = await FetchMessagesPageAsync(channelId, pageAfterId);
+                var (messages, reachedCutoff) = await FetchMessagesPageAsync(channelId, pageBeforeId);
 
                 if (messages.Count == 0)
-                    break; // No more messages in this channel.
+                    break;
 
-                // Advance the cursor to the last message ID on this page.
-                pageAfterId = messages[^1].id;
+                // Advance cursor to the oldest message on this page.
+                pageBeforeId = messages[^1].id;
 
                 foreach (var (msgId, hasMedia) in messages)
                 {
                     if (!hasMedia)
-                        continue; // Skip messages without links or attachments.
+                        continue;
 
                     bool deleted = await DeleteWithRetryAsync(channelId, msgId);
                     if (deleted)
@@ -68,13 +73,10 @@ class DiscordCleaner
                         Console.WriteLine($"  Deleted {msgId} (total: {totalDeleted})");
                     }
 
-                    // 1. Zmiana: Podstawowy rozrzut między wiadomościami (1200ms - 3800ms)
                     await RandomDelayAsync(1000, 3500);
 
-                    // 2. Zmiana: Długa przerwa techniczna z dokładnością do milisekund
                     if (requestsSinceBreak >= Rng.Next(20, 40))
                     {
-                        // Losujemy czas od 1 minuty (60 000 ms) do 4 minut (240 000 ms)
                         int breakMs = Rng.Next(30_000, 240_001);
                         TimeSpan t = TimeSpan.FromMilliseconds(breakMs);
 
@@ -87,8 +89,8 @@ class DiscordCleaner
                     }
                 }
 
-                // If we got fewer than 100 messages, this was the last page.
-                if (messages.Count < 100)
+                // Stop if we hit the cutoff date or last page.
+                if (reachedCutoff || messages.Count < 100)
                     break;
             }
 
@@ -99,20 +101,22 @@ class DiscordCleaner
     }
 
     /// <summary>
-    /// Fetches one page (up to 100) of messages from a channel after the given snowflake ID.
-    /// Returns a list of (messageId, hasMediaOrLink) tuples for messages authored by the current user.
+    /// Fetches one page (up to 100) of messages before the given snowflake ID, newest first.
+    /// Returns messages authored by the current user and a flag indicating if StartDate was reached.
     /// </summary>
-    private static async Task<List<(string id, bool hasMedia)>> FetchMessagesPageAsync(string channelId, string afterId)
+    /// <param name="channelId">Target DM channel ID.</param>
+    /// <param name="beforeId">Snowflake ID to paginate from (exclusive upper bound).</param>
+    private static async Task<(List<(string id, bool hasMedia)> messages, bool reachedCutoff)> FetchMessagesPageAsync(string channelId, string beforeId)
     {
         var result = new List<(string, bool)>();
 
-        string url = $"https://discord.com/api/v9/channels/{channelId}/messages?limit=100&after={afterId}";
+        string url = $"https://discord.com/api/v9/channels/{channelId}/messages?limit=100&before={beforeId}";
         HttpResponseMessage response = await Http.GetAsync(url);
 
         if (!response.IsSuccessStatusCode)
         {
             Console.WriteLine($"  Failed to fetch messages: {response.StatusCode}");
-            return result;
+            return (result, false);
         }
 
         string body = await response.Content.ReadAsStringAsync();
@@ -120,11 +124,19 @@ class DiscordCleaner
 
         foreach (JsonElement msg in doc.RootElement.EnumerateArray())
         {
+            string msgId = msg.GetProperty("id").GetString() ?? "";
+
+            // Check if this message is older than our cutoff date.
+            ulong snowflake = ulong.Parse(msgId);
+            long timestampMs = (long)(snowflake >> 22) + 1_420_070_400_000L;
+            DateTime msgDate = DateTimeOffset.FromUnixTimeMilliseconds(timestampMs).UtcDateTime;
+
+            if (msgDate < StartDate)
+                return (result, true); // Reached the cutoff, stop scanning.
+
             string authorId = msg.GetProperty("author").GetProperty("id").GetString() ?? "";
             if (authorId != MyUserId)
-                continue; // Only consider our own messages.
-
-            string msgId = msg.GetProperty("id").GetString() ?? "";
+                continue;
 
             bool hasAttachments = msg.GetProperty("attachments").GetArrayLength() > 0;
             bool hasEmbeds = msg.GetProperty("embeds").GetArrayLength() > 0;
@@ -133,13 +145,15 @@ class DiscordCleaner
             result.Add((msgId, hasMedia));
         }
 
-        return result;
+        return (result, false);
     }
 
     /// <summary>
     /// Attempts to delete a message, retrying once on a 429 rate-limit response.
     /// Returns true if the message was deleted successfully.
     /// </summary>
+    /// <param name="channelId">Channel containing the message.</param>
+    /// <param name="messageId">ID of the message to delete.</param>
     private static async Task<bool> DeleteWithRetryAsync(string channelId, string messageId)
     {
         string url = $"https://discord.com/api/v9/channels/{channelId}/messages/{messageId}";
@@ -205,6 +219,7 @@ class DiscordCleaner
     /// <summary>
     /// Converts a UTC DateTime to a Discord Snowflake ID representing that moment.
     /// </summary>
+    /// <param name="date">The UTC date to convert.</param>
     private static string DateToSnowflake(DateTime date)
     {
         const long discordEpochMs = 1_420_070_400_000L;
@@ -214,6 +229,8 @@ class DiscordCleaner
     }
 
     /// <summary>Waits for a random duration between <paramref name="minMs"/> and <paramref name="maxMs"/> milliseconds.</summary>
+    /// <param name="minMs">Minimum wait time in milliseconds.</param>
+    /// <param name="maxMs">Maximum wait time in milliseconds.</param>
     private static Task RandomDelayAsync(int minMs, int maxMs)
         => Task.Delay(Rng.Next(minMs, maxMs + 1));
 }
