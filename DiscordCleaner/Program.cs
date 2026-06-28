@@ -8,7 +8,7 @@ namespace DiscordCleaner;
 /// starting from a configured date. Uses the user's own account token.
 /// Note: automating a user account violates Discord ToS (section 13).
 /// </summary>
-class DiscordDMCleaner
+class DiscordCleaner
 {
     /// <summary>Only messages sent on or after this date will be deleted.</summary>
     private static readonly DateTime StartDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -16,15 +16,16 @@ class DiscordDMCleaner
     private static readonly HttpClient Http = new HttpClient();
     private static readonly Random Rng = new Random();
 
+    /// <summary>Your Discord user token (not a bot token).</summary>
+    private static string Token = "";
+    /// <summary>Your own Discord user ID — only messages authored by you are deleted.</summary>
+    private static string MyUserId = "";
+
     static async Task Main()
     {
         DotNetEnv.Env.Load();
-
-        /// <summary>Your Discord user token (not a bot token).</summary>
-        string Token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "";
-
-        /// <summary>Your own Discord user ID — only messages authored by you are deleted.</summary>
-        string MyUserId = Environment.GetEnvironmentVariable("DISCORD_USER_ID") ?? "";
+        Token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "";
+        MyUserId = Environment.GetEnvironmentVariable("DISCORD_USER_ID") ?? "";
 
         Http.DefaultRequestHeaders.Add("Authorization", Token);
 
