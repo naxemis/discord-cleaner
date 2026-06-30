@@ -142,7 +142,10 @@ public class DiscordCleanerService
                     if (doc.RootElement.TryGetProperty("retry_after", out JsonElement ra))
                         waitMs = (int)(ra.GetDouble() * 1000) + 500;
                 }
-                catch { }
+                catch (Exception exception)
+                {
+                    Log($"WARNING: Failed to parse Rate Limit JSON. Defaulting to 15s. Details: {exception.Message}", ConsoleColor.Yellow);
+                }
 
                 Log($"ERROR: Rate limit! Waiting {waitMs / 1000.0:F1}s...");
                 await Task.Delay(waitMs);
