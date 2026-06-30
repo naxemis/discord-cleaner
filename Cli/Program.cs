@@ -1,14 +1,14 @@
 ﻿using System.Net;
 using System.Text.Json;
 
-namespace DiscordCleaner;
+namespace DiscordCleaner.Cli;
 
 /// <summary>
 /// Deletes messages containing links or attachments from all DM channels,
 /// scanning from newest to oldest down to StartDate.
 /// Note: automating a user account violates Discord ToS (section 13).
 /// </summary>
-class DiscordCleaner
+class Program
 {
     /// <summary>Only messages sent on or after this date will be deleted.</summary>
     private static readonly DateTime StartDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
