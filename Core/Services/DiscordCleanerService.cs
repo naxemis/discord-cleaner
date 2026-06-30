@@ -38,7 +38,7 @@ public class DiscordCleanerService
         foreach (string channelId in channels)
         {
             Log($"\nScanning channel {channelId}...");
-            string pageBeforeId = DiscordSnowflake.DateToSnowflake(DateTime.UtcNow);
+            string? pageBeforeId = null;
 
             while (true)
             {
@@ -81,10 +81,10 @@ public class DiscordCleanerService
         Log($"\nDone. Total messages deleted: {totalDeleted}");
     }
 
-    private async Task<(List<DiscordMessage> Messages, bool ReachedCutoff)> FetchMessagesPageAsync(string channelId, string beforeId)
+    private async Task<(List<DiscordMessage> Messages, bool ReachedCutoff)> FetchMessagesPageAsync(string channelId, string? beforeId)
     {
         var result = new List<DiscordMessage>();
-        string url = $"https://discord.com/api/v9/channels/{channelId}/messages?limit=100&before={beforeId}";
+        string url = $"https://discord.com/api/v9/channels/{channelId}/messages?limit=100{(string.IsNullOrEmpty(beforeId) ? "" : $"&before={beforeId}")}";
 
         HttpResponseMessage response = await _http.GetAsync(url);
         if (!response.IsSuccessStatusCode)
