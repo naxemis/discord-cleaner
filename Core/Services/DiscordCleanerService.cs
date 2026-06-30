@@ -112,8 +112,9 @@ public class DiscordCleanerService
             bool hasEmbeds = msg.GetProperty("embeds").GetArrayLength() > 0;
             string content = msg.GetProperty("content").GetString() ?? "";
             bool hasLink = content.Contains("http://") || content.Contains("https://");
+            bool isLinkWhitelisted = hasLink && _config.WhitelistedDomains.Any(content.Contains);
 
-            bool shouldDelete = hasAttachments || hasEmbeds || hasLink;
+            bool shouldDelete = hasAttachments || hasEmbeds || (hasLink && !isLinkWhitelisted);
 
             result.Add(new DiscordMessage(msgId, shouldDelete));
         }
