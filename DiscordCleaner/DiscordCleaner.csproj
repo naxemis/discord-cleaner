@@ -12,7 +12,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Update=".env">
+        <None Update="../.env">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
     </ItemGroup>
