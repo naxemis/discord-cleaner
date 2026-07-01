@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    rebase-strategy: "auto"
+
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
+
+    commit-message:
+      prefix: "chore(deps):"
